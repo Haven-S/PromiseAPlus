@@ -13,6 +13,7 @@ Promises/A+ 是 JavaScript Promise 的一个开放标准。ES6 中的 Promise �
 #### 0.2. Promises/A+ 是如何定义 Promise 的
 
 > A _promise_ represents the eventual result of an asynchronous operation.
+>
 > 一个 Promise 代表着一个异步操作的最终结果。
 
 可以看到，Promise 就是一种异步编程的解决方案。为了获取到 Promise 对象对应的异步操作的结果，Promises/A+ 定义了对象上的 `then` 方法：通过回调函数的方式接收 Promise 的最终结果或者是被拒绝的原因。
@@ -142,7 +143,6 @@ const state = Symbol();
 const value = Symbol();
 const reason = Symbol();
 
-//1. Terminology
 type PromiseAPlusType = (Object | Function) & {
   then: Then;
   [state]: State;
@@ -169,3 +169,4 @@ const PromiseAPlus = function (this: PromiseAPlusType) {
 };
 ```
 
+基础部分搭建完成，接下来我们要处理重要的 `then` 方法了：
