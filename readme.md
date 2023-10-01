@@ -525,15 +525,13 @@ let then = x.then;
 
 由于 x 不是我们定义的类型，它的 `then` 属性可能会在之后被改变。我们需要保存一个固定的引用来确保一致性。
 
-如果在获取 `x.then` 是抛出了一个错误 `e`,用 `e` 去拒绝 `promise`
-
-[^如果x是一个访问器属性，在它的get方法里可能抛出错误]: 
+如果在获取 `x.then` 时抛出了一个错误 `e`,用 `e` 去拒绝 `promise` （ 如果x是一个访问器属性，在它的get方法里可能抛出错误 ）
 
 如果 `x` 是一个 function,用 `x` 作为 `this` 去调用它，给它传递两个参数：`resolvePromise ` 和 `rejectPromise`
 
 这两个参数其实就是给这个 thenable 对象提供的状态转移函数。
 
-当 `resolvePromise ` 被调用，携带 value `y` 时，调用 `[[Resolve]](promise, y)`
+当 `resolvePromise` 被调用，携带 value `y` 时，调用 `[[Resolve]](promise, y)`
 
 当 `rejectPromise` 被调用，携带 reason `r` 时，用 `r` 拒绝 `promise`
 
