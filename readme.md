@@ -295,12 +295,12 @@ function changeState(promise: PromiseAPlusType, transition: StateTransition) {
 }
 
 // 封装两个状态转移函数方便调用
-const toFulfilledState = (promise: PromiseAPlusType, payload: Value) =>
+const toFulfilledState = (promise: PromiseAPlusType, payload: Value) => // 兑现 promise
   changeState(promise, {
     state: State.fulfilled,
     payload
   });
-const toRejectedState = (promise: PromiseAPlusType, payload: Reason) =>
+const toRejectedState = (promise: PromiseAPlusType, payload: Reason) => // 拒绝 promise
   changeState(promise, {
     state: State.rejected,
     payload
@@ -349,6 +349,7 @@ function clearThenQueue(promise: PromiseAPlusType) {
         state: currentState,
         payload
       };
+      // 状态同步
       changeState(returnPromise, returnTransition);
     }
   }
@@ -376,3 +377,222 @@ const PromiseAPlus = function (this: PromiseAPlusType) {
 ```
 
 至此，我们已经基本实现 `then` 方法。只需要完成内部方法 resolve 的实现，我们就能得到一个符合 Promises/A+ 规范的 Promise 了。
+
+#### 2.3 Promise 解决过程
+
+`[[Resolve]](promise, x)` 用来'解决'一个promise：如果 `x` 是一个 thenable （ x 实现了一个 `then` 方法），那么它会尝试让 `promise` 去同步 `x` 的状态, 否则就用 `x` 作为 value 去兑现 `promise`
+
+可以看到，这个方法是在 `onFulfilled` 或者 `onRejected` 成功执行时返回了一个 value `x` 后被调用的。那么现在的问题是，我们为什么需要这样一个方法？我们为什么不直接用 `x` 去兑现 `promise` 呢？'解决' 和 兑现 一个 Promise 有什么区别？
+
+这里我们不妨看看 ES6 里的 Promise:
+
+```javascript
+const anotherPromise = new Promise(resolve => {
+  setTimeout(() => {
+    resolve(2);
+  }, 1000);
+});
+
+// 第一个例子
+Promise.resolve()
+  .then(_ => {
+    return 1;
+  })
+  .then(res => {
+    console.log(res);
+  });
+// 第二个例子
+Promise.resolve()
+  .then(_ => { 
+    return anotherPromise;
+  })
+  .then(res => { 
+    console.log(res);
+  });
+```
+
+Promise 的一个重要特性就是链式调用。在第一个例子中，我们在第一个 `then` 的回调函数 `onFulfilled` 中返回 1，然后第二个 `then` 中就能接收到这个返回值 1 并且将其打印出来。
+
+然而，在第二个例子里，我们在第一个 `then` 的回调函数中返回一个 Promise，等待一秒后，第二个 `then` 里打印出 2。为什么这里打印的不是回调函数的返回值 Promise 呢？
+
+这就是 `[[Resolve]]` 的作用。
+
+> ```javascript
+> promise2 = promise1.then(onFulfilled, onRejected);
+> ```
+>
+> 2.2.7.1 If either `onFulfilled` or `onRejected` returns a value `x`, run the Promise Resolution Procedure `[[Resolve]](promise2, x)`.
+
+在回调函数 `onFulfilled` 或者 `onRejected` 返回一个 value `x`  后，如果 `x`  是普通值，会用 `x` 去兑现 promise2。如果 `x` 是一个 thenable，就会尝试让 promise2 去同步 `x` 的状态。
+
+所以在上面第二个例子里，完整的流程应该是：
+
+```javascript
+const anotherPromise = new Promise(resolve => {
+  setTimeout(() => {
+    resolve(2);
+  }, 1000);
+});
+
+const promiseA = Promise.resolve().then(_ => {
+  // 第一个 then
+  return anotherPromise;
+});
+promiseA.then(res => {
+  // 第二个 then
+  console.log(res);
+});
+```
+
+1. anotherPromise 初始化，定时器开启。
+2. 第一个 `then` 的 `onFulfilled` 执行并返回 anotherPromise，这时会调用 `[[Resolve]](promiseA,anotherPromise)`，此时anotherPromise 在 pending 状态， `[[Resolve]]` 会等待 anotherPromise 状态改变。
+3. 第二个 `then` 的  `onFulfilled` 加入 promiseA 的等待队列。
+4. 一秒后，anotherPromise 被兑现，它的 value 是 2
+5.  `[[Resolve]]` 发现 anotherPromise 被兑现，将它的状态同步到 promiseA 上。promiseA 被兑现，它的 value 也是 2。
+6. promiseA 被兑现，第二个 `then` 的  `onFulfilled`  被执行，拿到 promiseA 的 value，在控制台打印出 2
+
+这样我们就能明白， `[[Resolve]]` 的作用就是同步状态。
+
+```javascript
+promise2 = promise1.then(onFulfilled, onRejected);
+const onFulfilled = () => {
+  return new Promise();
+};
+```
+
+在 `then` 的回调中如果返回一个 Promise，我们通常关心的不是这个 Promise 本身，而是它的状态，它的 value 或者 reason。所以当回调返回了一个 Promise 对象时，我们用  `[[Resolve]]`  去’解决‘ promise2，去同步 Promise 对象的状态。而不是简单地用这个 Promise 对象兑现 promise2。
+
+此外， `[[Resolve]]` 不仅能同步我们正在实现的这个 Promise 对象的状态，它还能处理其他任何符合 Promises/A+ 规范的 Promise 对象，它甚至可以尝试去同步一个 thenable 对象的状态。这保证了不同的实现之间也能够相互协作。
+
+了解了 `[[Resolve]]` 方法的基本思想，那么接下来规范的细节就更容易理解：
+
+```
+[[Resolve]](promise, x)
+```
+
+2.3.1. 如果  `promise` 和 `x` 是同一个对象，用一个 `TypeError` 拒绝 `promise`
+
+我们看下 ES6 的 Promise 遇到这种情况会报什么错：
+
+```javascript
+let resolveFunc;
+let promise = new Promise(resolve => {
+  resolveFunc = resolve;
+});
+promise.catch(err => console.error(err));
+
+resolveFunc(promise);
+// TypeError: Chaining cycle detected for promise #<Promise>
+```
+
+为什么 `promise` 和 `x` 不能是同一个对象？我们继续看规范：
+
+2.3.2. 如果 `x` 是一个 Promise，去同步它的状态
+
+如果 `x` 在 pending 状态，`promise` 在 `x` 转换状态到 fulfilled 或者 rejected 之前要保持 pending 状态。
+
+这里我们看到，如果 `promise` 和 `x` 是同一个对象，那么它们就会 ’死锁‘ ， 无法转换状态。所以规范里要求在这种情况下拒绝 `promise`。
+
+此外，在 `x` 已经是/转换到 fulfilled 或 rejected 状态时，用 value/reason 兑现/拒绝 `promise`
+
+```typescript
+function _resolve(promise: PromiseAPlusType, x: Value) {
+  if (promise === x) {
+    toRejectedState(promise, new TypeError('Chaining cycle detected for promise #<PromiseAPLus>'));
+  } else if (x instanceof PromiseAPlus) {
+    // 直接把 promise 加入 x 的 thenQueue，在清空 thenQueue 时 ( clearThenQueue(x) ) ，x 会将自己的状态同步给 promise
+    x[thenQueue].push({
+      onFulfilled: null,
+      onRejected: null,
+      returnPromise: promise
+    });
+    clearThenQueue(x);
+  }
+}
+```
+
+下面我们去处理 thenable 对象：
+
+2.3.3. 如果 x 是一个 object 或者 function
+
+x 上可能存在 `then` 属性
+
+我们首先做一个操作：
+
+```javascript
+let then = x.then;
+```
+
+由于 x 不是我们定义的类型，它的 `then` 属性可能会在之后被改变。我们需要保存一个固定的引用来确保一致性。
+
+如果在获取 `x.then` 是抛出了一个错误 `e`,用 `e` 去拒绝 `promise`
+
+[^如果x是一个访问器属性，在它的get方法里可能抛出错误]: 
+
+如果 `x` 是一个 function,用 `x` 作为 `this` 去调用它，给它传递两个参数：`resolvePromise ` 和 `rejectPromise`
+
+这两个参数其实就是给这个 thenable 对象提供的状态转移函数。
+
+当 `resolvePromise ` 被调用，携带 value `y` 时，调用 `[[Resolve]](promise, y)`
+
+当 `rejectPromise` 被调用，携带 reason `r` 时，用 `r` 拒绝 `promise`
+
+我们要保证所有对 `resolvePromise ` 和 `rejectPromise` 的调用里，只有第一个能够生效。这对应于我们的 Promises/A+ 里对状态转移的限制：只能转移一次。
+
+如果调用 `then` 的过程中抛出错误 `e`：
+
+用 `e` 去拒绝 `promise` ，但是前提是  `resolvePromise` 或者 `rejectPromise` 没有被调用过，也就是这个 thenable 对象没有转移过状态。
+
+如果 `then` 不是一个 function，直接用 `x` 兑现 `promise`
+
+通过以上限制，我们可以保证这个 thenable 至少在行为上是和我们自己的 Promise 一致的。
+
+2.3.3. 如果 x 不是 object 也不是 function，直接用 `x` 兑现 `promise`
+
+```typescript
+type ResolvePromise = (value?: Value) => any;
+type RejectPromise = (reason?: Reason) => any;
+
+function _resolve(promise: PromiseAPlusType, x: Value) {
+  /*
+  	省略已经实现的部分
+  */
+  else if (Object.prototype.toString.call(x) === '[object Object]' || typeof x === 'function') {
+    let then;
+    try {
+      then = x.then;
+    } catch (e) {
+      toRejectedState(promise, e);
+      return;
+    }
+    if (typeof then === 'function') {
+      let calledFlag = false; // 记录回调是否已经被调用
+      const resolvePromise: ResolvePromise = y => {
+        if (!calledFlag) {
+          _resolve(promise, y);
+        }
+        calledFlag = true;
+      };
+      const rejectPromise: RejectPromise = r => {
+        if (!calledFlag) {
+          toRejectedState(promise, r);
+        }
+        calledFlag = true;
+      };
+      try {
+        then.call(x, resolvePromise, rejectPromise);
+      } catch (e) {
+        if (!calledFlag) {
+          toRejectedState(promise, e);
+        }
+      }
+    } else {
+      toFulfilledState(promise, x);
+    }
+  } else {
+    toFulfilledState(promise, x);
+  }
+}
+```
+
+大功告成！我们自己实现了一个符合 Promises/A+ 规范的 Promise！

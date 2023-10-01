@@ -71,11 +71,6 @@ interface ThenObj {
   returnPromise: PromiseAPlusType;
 }
 
-interface PromiseAPlusClass {
-  new (): PromiseAPlusType;
-  (): void;
-}
-
 function clearThenQueue(promise: PromiseAPlusType) {
   const currentState = promise[state];
   if (currentState === State.pending) {
@@ -108,7 +103,60 @@ function clearThenQueue(promise: PromiseAPlusType) {
   promise[thenQueue] = [];
 }
 
-function _resolve(promise: PromiseAPlusType, x: Value) {}
+type ResolvePromise = (value?: Value) => any;
+type RejectPromise = (reason?: Reason) => any;
+
+function _resolve(promise: PromiseAPlusType, x: Value) {
+  if (promise === x) {
+    toRejectedState(promise, new TypeError('Chaining cycle detected for promise #<PromiseAPLus>'));
+  } else if (x instanceof PromiseAPlus) {
+    x[thenQueue].push({
+      onFulfilled: null,
+      onRejected: null,
+      returnPromise: promise
+    });
+    clearThenQueue(x);
+  } else if (Object.prototype.toString.call(x) === '[object Object]' || typeof x === 'function') {
+    let then;
+    try {
+      then = x.then;
+    } catch (e) {
+      toRejectedState(promise, e);
+      return;
+    }
+    if (typeof then === 'function') {
+      let calledFlag = false;
+      const resolvePromise: ResolvePromise = y => {
+        if (!calledFlag) {
+          _resolve(promise, y);
+        }
+        calledFlag = true;
+      };
+      const rejectPromise: RejectPromise = r => {
+        if (!calledFlag) {
+          toRejectedState(promise, r);
+        }
+        calledFlag = true;
+      };
+      try {
+        then.call(x, resolvePromise, rejectPromise);
+      } catch (e) {
+        if (!calledFlag) {
+          toRejectedState(promise, e);
+        }
+      }
+    } else {
+      toFulfilledState(promise, x);
+    }
+  } else {
+    toFulfilledState(promise, x);
+  }
+}
+
+interface PromiseAPlusClass {
+  new (): PromiseAPlusType;
+  (): void;
+}
 
 const PromiseAPlus = function (this: PromiseAPlusType) {
   this[state] = State.pending;
