@@ -19,7 +19,7 @@ type Value = any;
 type Exception = any;
 type Reason = any;
 
-type Then = any;
+type Then = (onFulfilled?: any, onRejected?: any) => PromiseAPlusType;
 
 // 2. Requirements
 enum State {

@@ -287,6 +287,8 @@ type PromiseAPlusType = (Object | Function) & {
   [thenQueue]: ThenObj[];
 };
 
+type Then = (onFulfilled?: any, onRejected?: any) => PromiseAPlusType;
+
 function changeState(promise: PromiseAPlusType, transition: StateTransition) {
   /*
   	省略状态转移代码
