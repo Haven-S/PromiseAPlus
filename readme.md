@@ -10,6 +10,8 @@ Promises/A+ 是 JavaScript Promise 的一个开放标准。ES6 中的 Promise �
 
 [Promises/A+ (promisesaplus.com)](https://promisesaplus.com/)
 
+强烈建议在阅读本文的同时打开规范以便查阅比对。
+
 #### 0.2. Promises/A+ 是如何定义 Promise 的
 
 > A _promise_ represents the eventual result of an asynchronous operation.
