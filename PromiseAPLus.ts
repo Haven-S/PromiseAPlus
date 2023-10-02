@@ -15,9 +15,9 @@ type PromiseAPlusType = (Object | Function) & {
 type Thenable = (Object | Function) & {
   then: Then;
 };
-type Value = any;
+export type Value = any;
 type Exception = any;
-type Reason = any;
+export type Reason = any;
 
 type Then = (onFulfilled?: any, onRejected?: any) => PromiseAPlusType;
 
@@ -173,3 +173,5 @@ const PromiseAPlus = function (this: PromiseAPlusType) {
   };
   this[thenQueue] = [];
 } as PromiseAPlusClass;
+
+export { PromiseAPlus, _resolve, toRejectedState };

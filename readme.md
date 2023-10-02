@@ -598,3 +598,81 @@ function _resolve(promise: PromiseAPlusType, x: Value) {
 ```
 
 大功告成！我们自己实现了一个符合 Promises/A+ 规范的 Promise！
+
+## 4.测试
+
+我们可以简单测试下我们的 Promise：
+
+在我们的 Promise 实现里导出构造函数和状态转移函数：
+
+```typescript
+// PromiseAPLus.ts
+export { PromiseAPlus, _resolve, toRejectedState };
+```
+
+编写一些简单的代码：
+
+```typescript
+// test.ts
+import { PromiseAPlus, _resolve, toRejectedState } from './PromiseAPLus';
+
+const promise1 = new PromiseAPlus();
+promise1
+  .then((res: string) => {
+    console.log(res);
+    throw new Error();
+  })
+  .then((res: string) => {
+    console.log(res);
+  })
+  .then(
+    () => {},
+    (err: any) => {
+      console.log('caught an error:', err);
+    }
+  );
+
+setTimeout(() => {
+  _resolve(promise1, 'result 1');
+}, 2000);
+
+setTimeout(() => {
+  toRejectedState(promise1, 'result 2');
+}, 3000);
+
+// result 1
+// caught an error: Error
+```
+
+编译运行下，看起来还不错。有没有办法测试下我们的 Promise 是不是确实符合 Promises/A+ 规范呢？
+
+我们可以用到这样一个 npm 包：promises-aplus-tests，里面已经为我们写好了相关的测试用例。
+
+[promises-aplus/promises-tests: Compliances tests for Promises/A+ (github.com)](https://github.com/promises-aplus/promises-tests#readme)
+
+这个包要求我们提供一个 adapter，它有一个方法 deferred，创建一个 { promise, resolve, reject }，包括一个 Promise 实例，以及 '解决' 和 拒绝它的方法，这正是我们之前在 PromiseAPLus.ts 里导出的方法。
+
+我们还需要从 PromiseAPLus.ts 里导出一些类型：
+
+```typescript
+// promisesTest.ts
+import { PromiseAPlus, _resolve, toRejectedState } from './PromiseAPlus';
+import type { Value, Reason } from './PromiseAPlus';
+
+const adapter = {
+  deferred() {
+    const promise = new PromiseAPlus();
+    const resolve = (value: Value) => _resolve(promise, value);
+    const reject = (reason: Reason) => toRejectedState(promise, reason);
+    return { promise, resolve, reject };
+  }
+};
+
+const promisesAplusTests = require('promises-aplus-tests');
+
+promisesAplusTests(adapter, function (err: any) {
+  console.log('err:', err);
+});
+```
+
+编译运行，我们的 Promise 通过了所有测试用例！
