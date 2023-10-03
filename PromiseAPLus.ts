@@ -116,7 +116,10 @@ function _resolve(promise: PromiseAPlusType, x: Value) {
       returnPromise: promise
     });
     clearThenQueue(x);
-  } else if (Object.prototype.toString.call(x) === '[object Object]' || typeof x === 'function') {
+  } else if (
+    (typeof x === 'object' && !Array.isArray(x) && x !== null) ||
+    typeof x === 'function'
+  ) {
     let then;
     try {
       then = x.then;
