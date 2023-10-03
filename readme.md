@@ -452,7 +452,7 @@ promiseA.then(res => {
 2. 第一个 `then` 的 `onFulfilled` 执行并返回 anotherPromise，这时会调用 `[[Resolve]](promiseA,anotherPromise)`，此时anotherPromise 在 pending 状态， `[[Resolve]]` 会等待 anotherPromise 状态改变。
 3. 第二个 `then` 的  `onFulfilled` 加入 promiseA 的等待队列。
 4. 一秒后，anotherPromise 被兑现，它的 value 是 2
-5.  `[[Resolve]]` 发现 anotherPromise 被兑现，将它的状态同步到 promiseA 上。promiseA 被兑现，它的 value 也是 2。
+5. `[[Resolve]]` 发现 anotherPromise 被兑现，将它的状态同步到 promiseA 上。promiseA 被兑现，它的 value 也是 2。
 6. promiseA 被兑现，第二个 `then` 的  `onFulfilled`  被执行，拿到 promiseA 的 value，在控制台打印出 2
 
 这样我们就能明白， `[[Resolve]]` 的作用就是同步状态。
@@ -559,7 +559,10 @@ function _resolve(promise: PromiseAPlusType, x: Value) {
   /*
   	省略已经实现的部分
   */
-  else if (Object.prototype.toString.call(x) === '[object Object]' || typeof x === 'function') {
+    else if (
+    (typeof x === 'object' && !Array.isArray(x) && x !== null) ||
+    typeof x === 'function'
+  ) {
     let then;
     try {
       then = x.then;
@@ -676,3 +679,396 @@ promisesAplusTests(adapter, function (err: any) {
 ```
 
 编译运行，我们的 Promise 通过了所有测试用例！
+
+## 5. ES6 里的 Promise
+
+#### 5.1. Resolver
+
+Promises/A+ 没有约定 Promise 对象如何创建或者如何更改状态，但是对于使用者来说它们是很重要的。在上面的测试里，我们需要导出三个函数 ( PromiseAPlus, _resolve, toRejectedState ) 才能完成一个 Promise 对象相关的所有操作，使用起来相当麻烦。
+
+在初始化 ES6 的 Promise 时，我们可以传入一个函数:
+
+```javascript
+new Promise((resolve, reject) => {
+    console.log(1);
+    resolve(2);
+})
+```
+
+这个函数会被立即执行，而且这个函数会接收到两个参数 resolve 和 reject，用来'解决'或者拒绝当前的 Promise，这个实现非常优雅。
+
+而这个函数一般被称为 Promise 的 resolver   ( 有时又被叫做 executor )，下面我们可以给我们自己的 Promise 也加上初始化 resolver 的方法：
+
+```typescript
+// MyPromise.ts
+import { PromiseAPlus, _resolve, toRejectedState } from './PromiseAPlus';
+import type { PromiseAPlusType, Value, Reason } from './PromiseAPlus';
+
+interface MyPromiseClass {
+  new (resolver?: Resolver): PromiseAPlusType;
+  (resolver?: Resolver): void;
+}
+
+type Resolver = (resolve: (value: Value) => void, reject: (reason: Reason) => void) => any;
+
+// 由于这不是 Promises/A+ 规范里的内容，我们不去修改之前的 PromiseAPlus 对象构造函数，而是创建一个新函数
+const MyPromise = function (this: PromiseAPlusType, resolver?: Resolver) {
+  // 借用之前的 PromiseAPlus 函数
+  PromiseAPlus.call(this);
+  if (resolver) {
+    try {
+      resolver(
+        // 把'解决'和拒绝的方法传给 resolver
+        value => {
+          _resolve(this, value);
+        },
+        reason => {
+          toRejectedState(this, reason);
+        }
+      );
+    } catch (e) {
+      // resolver 执行时抛出错误要拒绝当前 Promise
+      toRejectedState(this, e);
+    }
+  }
+} as MyPromiseClass;
+```
+
+#### 5.2. catch 和 finally
+
+除了 `then` 方法，ES6 的 Promise 还提供了两个方法：catch 和 finally。它们和错误处理里的 try ... catch ... finally 语句十分类似。
+
+##### catch
+
+catch 方法要求提供一个回调函数，它在 Promise 被拒绝的时候被调用。
+
+catch 其实就是 `then` 方法的封装，实现起来非常简单：
+
+```typescript
+this['catch'] = onRejected => {
+  return this.then(null, onRejected);
+};
+```
+
+##### finally
+
+finally 的功能是设置一个处理程序，在前面的操作完成后调用这个处理程序。
+
+那么我们能不能也像 catch 一样基于 `then` 这样实现呢:
+
+```typescript
+this['finally'] = onFinished => {
+  return this.then(onFinished, onFinished);
+};
+```
+
+很可惜，这样做并不完全正确。首先，我们看下 finally 和 `then` 在 ES6 里有什么不一样：
+
+```javascript
+let promise = Promise.resolve(1);
+promise
+  .then(res => {
+    console.log('then res:', res);
+    return 2;
+  })
+  .then(res => {
+    console.log('then then res:', res);
+  });
+promise
+  .finally(res => {
+    console.log('finally res:', res);
+    return 2;
+  })
+  .then(res => {
+    console.log('finally then res:', res);
+  });
+// then res: 1
+// finally res: undefined
+// then then res: 2
+// finally then res: 1
+```
+
+这里我们可以看到，finally 和 `then` 有两点不同：
+
+1. finally 的回调函数是没有参数的。这是因为既然 finally 的回调是在 Promise 完成后被调用，它可能获取到最终结果或者是拒绝原因，而在 finally 里是没办法区分这两种情况的，因此干脆就不给它传递任何参数。
+2. finally 的回调函数的返回值会被忽略。我们知道在 `then` 的回调里可以给出一个返回值从而传递给下个  `then` 方法，在 finally 里这个返回值并没有被处理。所以最后获取到的值仍然是最开始的 Promise 的值 1。
+
+那么 finally 是如何保证仍然能被链式调用的呢？
+
+```javascript
+let promise = Promise.reject(new Error());
+let promise1 = promise.then(null, err => {
+  console.log('then err:', err);
+  return 2;
+});
+promise1.then(
+  res => {
+    console.log('then then res:', res);
+  },
+  err => {
+    console.log('then then err:', err);
+  }
+);
+let promise2 = promise.finally(res => {
+  console.log('finally res:', res);
+  return 2;
+});
+promise2.then(
+  res => {
+    console.log('finally then res:', res);
+  },
+  err => {
+    console.log('finally then err:', err);
+  }
+);
+// then err: Error
+// finally res: undefined
+// then then res: 2
+// finally then err: Error
+```
+
+我们可以看到，在 promise.then 的 onRejected 返回了一个值后，promise1 被兑现了。
+
+而 promise.finally 的回调返回值被忽略了，promise2 和 promise 的状态一样，都是被拒绝的状态。
+
+还记得我们的 clearThenQueue 函数吗？在这里我们实现了对 `then` 回调函数返回值的处理
+
+```typescript
+function clearThenQueue(promise: PromiseAPlusType) {
+  /*
+  	省略无关代码
+  */
+    if (typeof toBeCalledFunc === 'function') {
+      const callback = () => {
+        let x;
+        try {
+          x = toBeCalledFunc(payload);
+        } catch (e) {
+          toRejectedState(returnPromise, e);
+          return;
+        }
+        // 关键部分
+        _resolve(returnPromise, x);
+      };
+      process.nextTick(callback);
+    } 
+  /*
+  	省略无关代码
+  */
+}
+```
+
+对于 finally 的回调，我们不关心它的返回值 x，所以这里我们单独开一个分支处理：
+
+```typescript
+function clearThenQueue(promise: PromiseAPlusType) {
+  /*
+  	省略无关代码
+  */
+    if (typeof toBeCalledFunc === 'function') {
+      const callback = () => {
+        let x;
+        try {
+          x = toBeCalledFunc(payload);
+        } catch (e) {
+          toRejectedState(returnPromise, e);
+          return;
+        }
+        if (isFinally) {
+          changeState(returnPromise, {
+            state: currentState,
+            payload
+          });
+        } else {
+          _resolve(returnPromise, x);
+        }
+      };
+      process.nextTick(callback);
+    } 
+  /*
+  	省略无关代码
+  */
+}
+
+interface ThenObj {
+  onFulfilled: any;
+  onRejected: any;
+  returnPromise: PromiseAPlusType;
+  isFinally?: boolean;
+}
+
+function then(
+  this: PromiseAPlusType,
+  onFulfilled?: any,
+  onRejected?: any,
+  isFinally: boolean = false
+): T {
+  const returnPromise = new PromiseAPlus();
+  const newObj = {
+    onFulfilled,
+    onRejected,
+    returnPromise
+  } as ThenObj<T>;
+  if (isFinally) {
+    newObj.isFinally = true;
+  }
+  this[thenQueue].push(newObj);
+  clearThenQueue(this);
+  return returnPromise;
+}
+```
+
+这里我们改造了 `then` 方法，添加一个可选参数 isFinally，默认值为 false。这样可以让我们不需要修改之前的代码里对 `then` 的调用格式。如果 isFinally 是 true，那么就给它要添加的 thenObj 加上 isFinally 标志。在 clearThenQueue 函数里，对于有  isFinally 标志的对象，在执行完其回调函数后，我们不再调用 `[[resolve]]`，而是去同步返回的 Promise 的状态。
+
+这样我们就可以复用 `then` 方法，实现 finally 方法：
+
+```typescript
+this['finally'] = onFinished => {
+  return this.then(
+    (res: Value) => {
+      // 避免传递参数给回调函数
+      onFinished();
+    },
+    (err: Reason) => {
+      onFinished();
+    },
+    true
+  );
+};
+```
+
+由于我们的 MyPromise 对象新增了 catch 和 finally 方法，那么它的类型也不再应该是 PromiseAPlusType 了。修改类型比较复杂，例如：
+
+在 `then` 方法里创建新的 Promise 对象时，不应该再使用 PromiseAPlus 创建而应该使用当前 Promise 对应的构造函数。
+
+在 resolve 方法判断 x 是不是一个 Promise 对象时，也不应该只判断是不是 PromiseAPlus 的实例 。
+
+这些修改在我们的实现里不是最重要的部分，所以我把修改放在源代码里，这里不再赘述。
+
+除此之外，我们的实现其实和 ES6 有一个细微的差别：我们把 then,catch,finally 方法挂载到了 Promise 实例上。而在 ES6 中，它们都是存在于 Promise 构造函数的原型上的。
+
+#### 5.3. Promise 静态方法
+
+在 ES6 的 `Promise` 类中，有 4 种静态方法:
+
+##### Promise.reject
+
+`Promise.reject(error)` : 使用 error 创建一个 rejected 的 Promise。
+
+```typescript
+interface MyPromiseClass {
+  reject: (reason?: Reason) => MyPromiseType;
+}
+
+MyPromise.reject = function (reason) {
+  const newPromise = new MyPromise();
+  toRejectedState(newPromise, reason);
+  return newPromise;
+};
+```
+
+##### Promise.resolve
+
+`Promise.resolve(value)` : 创建一个 Promise, 然后用 value '解决' 它。
+
+```typescript
+interface MyPromiseClass {
+  resolve: (value?: Value) => MyPromiseType;
+}
+
+MyPromise.resolve = function (value) {
+  const newPromise = new MyPromise();
+  _resolve(newPromise, value);
+  return newPromise;
+};
+```
+
+注意，调用 Promise.resolve 不代表一定会得到一个 fulfilled 的 Promise：
+
+```javascript
+let newPromise = Promise.resolve(Promise.reject());
+```
+
+这样得到的是一个 rejected 的 Promise；
+
+调用 Promise.resolve 返回的 Promise 也可能在 pending 状态：
+
+```javascript
+let newPromise = Promise.resolve(
+  new Promise(resolve => {
+    setTimeout(() => {
+      resolve(1);
+    }, 1000);
+  })
+);
+```
+
+这样 newPromise 将在 1 秒内保持 pending 状态；
+
+##### Promise.all
+
+`Promise.all(promises)`:返回一个新 Promise。等待所有传入的 promise 都被 '解决' 时，新 Promise 转为 fulfilled ，它的结果是所有传入的 promise 结果的数组。如果任意一个 promise 被拒绝，新 Promise 也会被同样的原因拒绝。
+
+```typescript
+interface MyPromiseClass {
+  all: (promises: Iterable<any>) => MyPromiseType;
+}
+
+MyPromise.all = function (promises) {
+  const newPromise = new MyPromise();
+  const value = [] as any[];
+  let finishedCount = 0; // 记录已经完成的数量
+  const promisesArray = Array.from(promises); // promises 是一个可迭代对象，我们把它转成数组方便操作
+  if (finishedCount === promisesArray.length) { // promises 数组为空，我们可以直接兑现 newPromise
+    _resolve(newPromise, value);
+  }
+  promisesArray.forEach((item, idx) => {
+    // promise 数组里可能有不是 MyPromise 类型的值，我们借用 MyPromise.resolve 可以处理它们
+    MyPromise.resolve(item).then(
+      (res: Value) => {
+        value[idx] = res;
+        finishedCount++;
+        if (finishedCount === promisesArray.length) {
+          _resolve(newPromise, value);
+        }
+      },
+      (err: Reason) => {
+        toRejectedState(newPromise, err);
+      }
+    )
+  });
+  return newPromise;
+};
+```
+
+我们还可以将整个处理程序用 try...catch... 包裹起来,当出现错误时（例如 promises 不是一个可迭代对象）用其拒绝 newPromise。
+
+##### Promise.race
+
+`Promise.race(promises)` :返回一个新 Promise。等待第一个 fulfilled 或者 rejected 的 promise，并将其状态以及 value / reason 同步给新 Promise。
+
+实现了 Promise.all ，Promise.race 的实现就非常容易完成了：
+
+```typescript
+interface MyPromiseClass {
+  race: (promises: Iterable<any>) => MyPromiseType;
+}
+
+MyPromise.race = function (promises) {
+  const newPromise = new MyPromise();
+  const promisesArray = Array.from(promises);
+  // Promise.race 是不特殊处理 promises 数组为空的情况的
+  promisesArray.forEach(item => {
+    MyPromise.resolve(item).then(
+      (res: Value) => {
+        _resolve(newPromise, res);
+      },
+      (err: Reason) => {
+        toRejectedState(newPromise, err);
+      }
+    );
+  });
+  return newPromise;
+};
+```
+

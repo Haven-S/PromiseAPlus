@@ -2,24 +2,24 @@
 const state = Symbol();
 const value = Symbol();
 const reason = Symbol();
-const thenQueue = Symbol();
+export const thenQueue = Symbol();
 
 //1. Terminology
-type PromiseAPlusType = (Object | Function) & {
-  then: Then;
+export type PromiseAPlusType = {
+  then: Then<PromiseAPlusType>;
   [state]: State;
   [value]?: Value;
   [reason]?: Reason;
-  [thenQueue]: ThenObj[];
+  [thenQueue]: ThenObj<PromiseAPlusType>[];
 };
-type Thenable = (Object | Function) & {
-  then: Then;
-};
+// type Thenable = (Object | Function) & {
+//   then: Then;
+// };
 export type Value = any;
-type Exception = any;
+// type Exception = any;
 export type Reason = any;
 
-type Then = (onFulfilled?: any, onRejected?: any) => PromiseAPlusType;
+export type Then<R> = (onFulfilled?: any, onRejected?: any, isFinally?: boolean) => R;
 
 // 2. Requirements
 enum State {
@@ -65,10 +65,11 @@ const toRejectedState = (promise: PromiseAPlusType, payload: Reason) =>
     payload
   });
 
-interface ThenObj {
+export interface ThenObj<T extends PromiseAPlusType> {
   onFulfilled: any;
   onRejected: any;
-  returnPromise: PromiseAPlusType;
+  returnPromise: T;
+  isFinally?: boolean;
 }
 
 function clearThenQueue(promise: PromiseAPlusType) {
@@ -79,7 +80,7 @@ function clearThenQueue(promise: PromiseAPlusType) {
   const toBeCalled = currentState === State.fulfilled ? 'onFulfilled' : 'onRejected';
   const payload = currentState === State.fulfilled ? promise[value] : promise[reason];
   for (let i = 0; i < promise[thenQueue].length; i++) {
-    const { [toBeCalled]: toBeCalledFunc, returnPromise } = promise[thenQueue][i];
+    const { [toBeCalled]: toBeCalledFunc, returnPromise, isFinally } = promise[thenQueue][i];
     if (typeof toBeCalledFunc === 'function') {
       const callback = () => {
         let x;
@@ -89,15 +90,21 @@ function clearThenQueue(promise: PromiseAPlusType) {
           toRejectedState(returnPromise, e);
           return;
         }
-        _resolve(returnPromise, x);
+        if (isFinally) {
+          changeState(returnPromise, {
+            state: currentState,
+            payload
+          });
+        } else {
+          _resolve(returnPromise, x);
+        }
       };
       process.nextTick(callback);
     } else {
-      const returnTransition = {
+      changeState(returnPromise, {
         state: currentState,
         payload
-      };
-      changeState(returnPromise, returnTransition);
+      });
     }
   }
   promise[thenQueue] = [];
@@ -106,17 +113,20 @@ function clearThenQueue(promise: PromiseAPlusType) {
 type ResolvePromise = (value?: Value) => any;
 type RejectPromise = (reason?: Reason) => any;
 
-function _resolve(promise: PromiseAPlusType, x: Value) {
+function _resolve<T extends PromiseAPlusType>(promise: T, x: Value) {
   if (promise === x) {
     toRejectedState(promise, new TypeError('Chaining cycle detected for promise #<PromiseAPLus>'));
-  } else if (x instanceof PromiseAPlus) {
+  } else if (x instanceof (promise.constructor as PromiseClass<T>)) {
     x[thenQueue].push({
       onFulfilled: null,
       onRejected: null,
       returnPromise: promise
     });
     clearThenQueue(x);
-  } else if (Object.prototype.toString.call(x) === '[object Object]' || typeof x === 'function') {
+  } else if (
+    (typeof x === 'object' && !Array.isArray(x) && x !== null) ||
+    typeof x === 'function'
+  ) {
     let then;
     try {
       then = x.then;
@@ -153,25 +163,37 @@ function _resolve(promise: PromiseAPlusType, x: Value) {
   }
 }
 
-interface PromiseAPlusClass {
-  new (): PromiseAPlusType;
+interface PromiseClass<T extends PromiseAPlusType> {
+  new (): T;
   (): void;
 }
 
-const PromiseAPlus = function (this: PromiseAPlusType) {
+function then<T extends PromiseAPlusType>(
+  this: T,
+  onFulfilled?: any,
+  onRejected?: any,
+  isFinally: boolean = false
+): T {
+  const returnPromise = new (this.constructor as PromiseClass<T>)();
+  const newObj = {
+    onFulfilled,
+    onRejected,
+    returnPromise
+  } as ThenObj<T>;
+  if (isFinally) {
+    newObj.isFinally = true;
+  }
+  this[thenQueue].push(newObj);
+  clearThenQueue(this);
+  return returnPromise;
+}
+
+function CreatePromise<T extends PromiseAPlusType>(this: T) {
   this[state] = State.pending;
-  this['then'] = (onFulfilled, onRejected) => {
-    const returnPromise = new PromiseAPlus();
-    this[thenQueue].push({
-      onFulfilled,
-      onRejected,
-      returnPromise
-    });
-    //clear queue if not pending
-    clearThenQueue(this);
-    return returnPromise;
-  };
+  this['then'] = then<T>;
   this[thenQueue] = [];
-} as PromiseAPlusClass;
+}
+
+const PromiseAPlus = CreatePromise<PromiseAPlusType> as PromiseClass<PromiseAPlusType>;
 
 export { PromiseAPlus, _resolve, toRejectedState };
