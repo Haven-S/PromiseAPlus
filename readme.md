@@ -29,13 +29,13 @@ Promises/A+ 并不关心 Promise 对象如何创建或者如何更改状态，�
 在这个部分，Promises/A+ 定义了 Promise 的常用术语。由于我们使用 Typescript 实现，这里正好可以把它们定义成类型：
 
 ```typescript
-type PromiseAPlusType = (Object | Function) & { 
+type PromiseAPlusType = (Object | Function) & {
   then: Then; // 用 Then 表示 Promises/A+ 定义的 then 方法的类型，我们会在之后定义它
-};// Promise 是一个对象或者函数，拥有一个符合 Promises/A+ 规范的 then 方法
+}; // Promise 是一个对象或者函数，拥有一个符合 Promises/A+ 规范的 then 方法
 
 type Thenable = (Object | Function) & {
   then: Function;
-};// 只要一个对象或者函数实现了一个then方法，那么它就是 "thenable"
+}; // 只要一个对象或者函数实现了一个then方法，那么它就是 "thenable"
 
 type Value = any; // Promise的结果，可以是任意值
 
@@ -50,7 +50,7 @@ type Reason = any; // Promise的拒绝原因
 
 Promises/A+告诉我们，一个 Promise 必须有状态，而且必须在以下三种之中：
 
-**pending - 待定** 
+**pending - 待定**
 
 **fulfilled - 已兑现**
 
@@ -182,7 +182,7 @@ const PromiseAPlus = function (this: PromiseAPlusType) {
 `then` 方法的格式：
 
 ```javascript
-promise.then(onFulfilled, onRejected)
+promise.then(onFulfilled, onRejected);
 ```
 
 它要求提供两个回调函数：`onFulfilled` 和 `onRejected`
@@ -217,7 +217,8 @@ type PromiseAPlusType = (Object | Function) & {
 
 const PromiseAPlus = function (this: PromiseAPlusType) {
   this[state] = State.pending;
-  this['then'] = (onFulfilled, onRejected) => { // 传入 onFulfilled, onRejected ，保存在对象内等待调用
+  this['then'] = (onFulfilled, onRejected) => {
+    // 传入 onFulfilled, onRejected ，保存在对象内等待调用
     this[thenObj] = {
       onFulfilled,
       onRejected
@@ -256,9 +257,9 @@ function changeState(promise: PromiseAPlusType, transition: StateTransition) {
 
 但是这样还不够，我们继续看规范：
 
-规范 2.2.6. 指出，`then` 方法可以被多次调用从而挂载多个 `onFulfilled`  `onRejected`。当 Promise 转为 fulfilled 或者 rejected 状态时，所有相关的  `onFulfilled` 或者 `onRejected` 要根据它们挂载的顺序被依次调用。如果 Promise 已经是 fulfilled 或者 rejected 也要调用这两个回调函数。
+规范 2.2.6. 指出，`then` 方法可以被多次调用从而挂载多个 `onFulfilled` `onRejected`。当 Promise 转为 fulfilled 或者 rejected 状态时，所有相关的 `onFulfilled` 或者 `onRejected` 要根据它们挂载的顺序被依次调用。如果 Promise 已经是 fulfilled 或者 rejected 也要调用这两个回调函数。
 
-我们在上面实现的版本只能挂载一个 `onFulfilled` 和 `onRejected` ，而且只有在状态改变的时候会调用它们。在 Promise 已经 fulfilled 或者  rejected 时没有做处理。
+我们在上面实现的版本只能挂载一个 `onFulfilled` 和 `onRejected` ，而且只有在状态改变的时候会调用它们。在 Promise 已经 fulfilled 或者 rejected 时没有做处理。
 
 规范 2.2.7. 要求 `then` 方法必须返回一个 Promise，这是 `then` 方法能够被链式调用的关键。
 
@@ -268,11 +269,11 @@ promise2 = promise1.then(onFulfilled, onRejected);
 
 而且我们要在原有的 promise1 对象和返回的 promise2 对象之间建立联系，具体来说，promise2 的状态最终会由 promise1 决定。
 
-当 `onFulfilled`  `onRejected` 是函数：
+当 `onFulfilled` `onRejected` 是函数：
 
 那么一个函数运行结束，只有两种可能：一是返回了一个值`x`（即便函数体内没有 return 语句，在函数正常运行完后仍然会返回 `undefined` ）,二是在运行中使用`throw`抛出一个异常`e`;
 
-当函数返回了值`x`，用这个值去'解决' promise2 ，即执行 `[[Resolve]](promise2, x)` （ Resolve外的双方括号表示它是一个内部方法 ），我们后面会去实现这个函数。
+当函数返回了值`x`，用这个值去'解决' promise2 ，即执行 `[[Resolve]](promise2, x)` （ Resolve 外的双方括号表示它是一个内部方法 ），我们后面会去实现这个函数。
 
 当函数抛出一个异常`e`，将`e`作为 reason 去拒绝 promise2，把 promise2 状态转为 rejected 。
 
@@ -299,12 +300,18 @@ function changeState(promise: PromiseAPlusType, transition: StateTransition) {
 }
 
 // 封装两个状态转移函数方便调用
-const toFulfilledState = (promise: PromiseAPlusType, payload: Value) => // 兑现 promise
+const toFulfilledState = (
+  promise: PromiseAPlusType,
+  payload: Value // 兑现 promise
+) =>
   changeState(promise, {
     state: State.fulfilled,
     payload
   });
-const toRejectedState = (promise: PromiseAPlusType, payload: Reason) => // 拒绝 promise
+const toRejectedState = (
+  promise: PromiseAPlusType,
+  payload: Reason // 拒绝 promise
+) =>
   changeState(promise, {
     state: State.rejected,
     payload
@@ -320,11 +327,12 @@ interface ThenObj {
 interface PromiseAPlusClass {
   new (): PromiseAPlusType;
   (): void;
-} 
+}
 
 function clearThenQueue(promise: PromiseAPlusType) {
   const currentState = promise[state];
-  if (currentState === State.pending) { // pending 状态下不能执行回调
+  if (currentState === State.pending) {
+    // pending 状态下不能执行回调
     return;
   }
   // 根据现在的状态获取对应的要执行的回调函数名和参数
@@ -384,7 +392,7 @@ const PromiseAPlus = function (this: PromiseAPlusType) {
 
 #### 2.3 Promise 解决过程
 
-`[[Resolve]](promise, x)` 用来'解决'一个promise：如果 `x` 是一个 thenable （ x 实现了一个 `then` 方法），那么它会尝试让 `promise` 去同步 `x` 的状态, 否则就用 `x` 作为 value 去兑现 `promise`
+`[[Resolve]](promise, x)` 用来'解决'一个 promise：如果 `x` 是一个 thenable （ x 实现了一个 `then` 方法），那么它会尝试让 `promise` 去同步 `x` 的状态, 否则就用 `x` 作为 value 去兑现 `promise`
 
 可以看到，这个方法是在 `onFulfilled` 或者 `onRejected` 成功执行时返回了一个 value `x` 后被调用的。那么现在的问题是，我们为什么需要这样一个方法？我们为什么不直接用 `x` 去兑现 `promise` 呢？'解决' 和 兑现 一个 Promise 有什么区别？
 
@@ -407,10 +415,10 @@ Promise.resolve()
   });
 // 第二个例子
 Promise.resolve()
-  .then(_ => { 
+  .then(_ => {
     return anotherPromise;
   })
-  .then(res => { 
+  .then(res => {
     console.log(res);
   });
 ```
@@ -427,7 +435,7 @@ Promise 的一个重要特性就是链式调用。在第一个例子中，我们
 >
 > 2.2.7.1 If either `onFulfilled` or `onRejected` returns a value `x`, run the Promise Resolution Procedure `[[Resolve]](promise2, x)`.
 
-在回调函数 `onFulfilled` 或者 `onRejected` 返回一个 value `x`  后，如果 `x`  是普通值，会用 `x` 去兑现 promise2。如果 `x` 是一个 thenable，就会尝试让 promise2 去同步 `x` 的状态。
+在回调函数 `onFulfilled` 或者 `onRejected` 返回一个 value `x` 后，如果 `x` 是普通值，会用 `x` 去兑现 promise2。如果 `x` 是一个 thenable，就会尝试让 promise2 去同步 `x` 的状态。
 
 所以在上面第二个例子里，完整的流程应该是：
 
@@ -449,11 +457,11 @@ promiseA.then(res => {
 ```
 
 1. anotherPromise 初始化，定时器开启。
-2. 第一个 `then` 的 `onFulfilled` 执行并返回 anotherPromise，这时会调用 `[[Resolve]](promiseA,anotherPromise)`，此时anotherPromise 在 pending 状态， `[[Resolve]]` 会等待 anotherPromise 状态改变。
-3. 第二个 `then` 的  `onFulfilled` 加入 promiseA 的等待队列。
+2. 第一个 `then` 的 `onFulfilled` 执行并返回 anotherPromise，这时会调用 `[[Resolve]](promiseA,anotherPromise)`，此时 anotherPromise 在 pending 状态， `[[Resolve]]` 会等待 anotherPromise 状态改变。
+3. 第二个 `then` 的 `onFulfilled` 加入 promiseA 的等待队列。
 4. 一秒后，anotherPromise 被兑现，它的 value 是 2
 5. `[[Resolve]]` 发现 anotherPromise 被兑现，将它的状态同步到 promiseA 上。promiseA 被兑现，它的 value 也是 2。
-6. promiseA 被兑现，第二个 `then` 的  `onFulfilled`  被执行，拿到 promiseA 的 value，在控制台打印出 2
+6. promiseA 被兑现，第二个 `then` 的 `onFulfilled` 被执行，拿到 promiseA 的 value，在控制台打印出 2
 
 这样我们就能明白， `[[Resolve]]` 的作用就是同步状态。
 
@@ -464,7 +472,7 @@ const onFulfilled = () => {
 };
 ```
 
-在 `then` 的回调中如果返回一个 Promise，我们通常关心的不是这个 Promise 本身，而是它的状态，它的 value 或者 reason。所以当回调返回了一个 Promise 对象时，我们用  `[[Resolve]]`  去’解决‘ promise2，去同步 Promise 对象的状态。而不是简单地用这个 Promise 对象兑现 promise2。
+在 `then` 的回调中如果返回一个 Promise，我们通常关心的不是这个 Promise 本身，而是它的状态，它的 value 或者 reason。所以当回调返回了一个 Promise 对象时，我们用 `[[Resolve]]` 去’解决‘ promise2，去同步 Promise 对象的状态。而不是简单地用这个 Promise 对象兑现 promise2。
 
 此外， `[[Resolve]]` 不仅能同步我们正在实现的这个 Promise 对象的状态，它还能处理其他任何符合 Promises/A+ 规范的 Promise 对象，它甚至可以尝试去同步一个 thenable 对象的状态。这保证了不同的实现之间也能够相互协作。
 
@@ -474,7 +482,7 @@ const onFulfilled = () => {
 [[Resolve]](promise, x)
 ```
 
-2.3.1. 如果  `promise` 和 `x` 是同一个对象，用一个 `TypeError` 拒绝 `promise`
+2.3.1. 如果 `promise` 和 `x` 是同一个对象，用一个 `TypeError` 拒绝 `promise`
 
 我们看下 ES6 的 Promise 遇到这种情况会报什么错：
 
@@ -529,7 +537,7 @@ let then = x.then;
 
 由于 x 不是我们定义的类型，它的 `then` 属性可能会在之后被改变。我们需要保存一个固定的引用来确保一致性。
 
-如果在获取 `x.then` 时抛出了一个错误 `e`,用 `e` 去拒绝 `promise` （ 如果x是一个访问器属性，在它的get方法里可能抛出错误 ）
+如果在获取 `x.then` 时抛出了一个错误 `e`,用 `e` 去拒绝 `promise` （ 如果 x.then 是一个访问器属性，在它的 get 方法里可能抛出错误 ）
 
 如果 `x` 是一个 function,用 `x` 作为 `this` 去调用它，给它传递两个参数：`resolvePromise ` 和 `rejectPromise`
 
@@ -543,7 +551,7 @@ let then = x.then;
 
 如果调用 `then` 的过程中抛出错误 `e`：
 
-用 `e` 去拒绝 `promise` ，但是前提是  `resolvePromise` 或者 `rejectPromise` 没有被调用过，也就是这个 thenable 对象没有转移过状态。
+用 `e` 去拒绝 `promise` ，但是前提是 `resolvePromise` 或者 `rejectPromise` 没有被调用过，也就是这个 thenable 对象没有转移过状态。
 
 如果 `then` 不是一个 function，直接用 `x` 兑现 `promise`
 
@@ -684,20 +692,20 @@ promisesAplusTests(adapter, function (err: any) {
 
 #### 5.1. Resolver
 
-Promises/A+ 没有约定 Promise 对象如何创建或者如何更改状态，但是对于使用者来说它们是很重要的。在上面的测试里，我们需要导出三个函数 ( PromiseAPlus, _resolve, toRejectedState ) 才能完成一个 Promise 对象相关的所有操作，使用起来相当麻烦。
+Promises/A+ 没有约定 Promise 对象如何创建或者如何更改状态，但是对于使用者来说它们是很重要的。在上面的测试里，我们需要导出三个函数 ( PromiseAPlus, \_resolve, toRejectedState ) 才能完成一个 Promise 对象相关的所有操作，使用起来相当麻烦。
 
 在初始化 ES6 的 Promise 时，我们可以传入一个函数:
 
 ```javascript
 new Promise((resolve, reject) => {
-    console.log(1);
-    resolve(2);
-})
+  console.log(1);
+  resolve(2);
+});
 ```
 
 这个函数会被立即执行，而且这个函数会接收到两个参数 resolve 和 reject，用来'解决'或者拒绝当前的 Promise，这个实现非常优雅。
 
-而这个函数一般被称为 Promise 的 resolver   ( 有时又被叫做 executor )，下面我们可以给我们自己的 Promise 也加上初始化 resolver 的方法：
+而这个函数一般被称为 Promise 的 resolver ( 有时又被叫做 executor )，下面我们可以给我们自己的 Promise 也加上初始化 resolver 的方法：
 
 ```typescript
 // MyPromise.ts
@@ -791,7 +799,7 @@ promise
 这里我们可以看到，finally 和 `then` 有两点不同：
 
 1. finally 的回调函数是没有参数的。这是因为既然 finally 的回调是在 Promise 完成后被调用，它可能获取到最终结果或者是拒绝原因，而在 finally 里是没办法区分这两种情况的，因此干脆就不给它传递任何参数。
-2. finally 的回调函数的返回值会被忽略。我们知道在 `then` 的回调里可以给出一个返回值从而传递给下个  `then` 方法，在 finally 里这个返回值并没有被处理。所以最后获取到的值仍然是最开始的 Promise 的值 1。
+2. finally 的回调函数的返回值会被忽略。我们知道在 `then` 的回调里可以给出一个返回值从而传递给下个 `then` 方法，在 finally 里这个返回值并没有被处理。所以最后获取到的值仍然是最开始的 Promise 的值 1。
 
 那么 finally 是如何保证仍然能被链式调用的呢？
 
@@ -838,20 +846,20 @@ function clearThenQueue(promise: PromiseAPlusType) {
   /*
   	省略无关代码
   */
-    if (typeof toBeCalledFunc === 'function') {
-      const callback = () => {
-        let x;
-        try {
-          x = toBeCalledFunc(payload);
-        } catch (e) {
-          toRejectedState(returnPromise, e);
-          return;
-        }
-        // 关键部分
-        _resolve(returnPromise, x);
-      };
-      process.nextTick(callback);
-    } 
+  if (typeof toBeCalledFunc === 'function') {
+    const callback = () => {
+      let x;
+      try {
+        x = toBeCalledFunc(payload);
+      } catch (e) {
+        toRejectedState(returnPromise, e);
+        return;
+      }
+      // 关键部分
+      _resolve(returnPromise, x);
+    };
+    process.nextTick(callback);
+  }
   /*
   	省略无关代码
   */
@@ -865,26 +873,26 @@ function clearThenQueue(promise: PromiseAPlusType) {
   /*
   	省略无关代码
   */
-    if (typeof toBeCalledFunc === 'function') {
-      const callback = () => {
-        let x;
-        try {
-          x = toBeCalledFunc(payload);
-        } catch (e) {
-          toRejectedState(returnPromise, e);
-          return;
-        }
-        if (isFinally) {
-          changeState(returnPromise, {
-            state: currentState,
-            payload
-          });
-        } else {
-          _resolve(returnPromise, x);
-        }
-      };
-      process.nextTick(callback);
-    } 
+  if (typeof toBeCalledFunc === 'function') {
+    const callback = () => {
+      let x;
+      try {
+        x = toBeCalledFunc(payload);
+      } catch (e) {
+        toRejectedState(returnPromise, e);
+        return;
+      }
+      if (isFinally) {
+        changeState(returnPromise, {
+          state: currentState,
+          payload
+        });
+      } else {
+        _resolve(returnPromise, x);
+      }
+    };
+    process.nextTick(callback);
+  }
   /*
   	省略无关代码
   */
@@ -918,7 +926,7 @@ function then(
 }
 ```
 
-这里我们改造了 `then` 方法，添加一个可选参数 isFinally，默认值为 false。这样可以让我们不需要修改之前的代码里对 `then` 的调用格式。如果 isFinally 是 true，那么就给它要添加的 thenObj 加上 isFinally 标志。在 clearThenQueue 函数里，对于有  isFinally 标志的对象，在执行完其回调函数后，我们不再调用 `[[resolve]]`，而是去同步返回的 Promise 的状态。
+这里我们改造了 `then` 方法，添加一个可选参数 isFinally，默认值为 false。这样可以让我们不需要修改之前的代码里对 `then` 的调用格式。如果 isFinally 是 true，那么就给它要添加的 thenObj 加上 isFinally 标志。在 clearThenQueue 函数里，对于有 isFinally 标志的对象，在执行完其回调函数后，我们不再调用 `[[resolve]]`，而是去同步返回的 Promise 的状态。
 
 这样我们就可以复用 `then` 方法，实现 finally 方法：
 
@@ -1019,7 +1027,8 @@ MyPromise.all = function (promises) {
   const value = [] as any[];
   let finishedCount = 0; // 记录已经完成的数量
   const promisesArray = Array.from(promises); // promises 是一个可迭代对象，我们把它转成数组方便操作
-  if (finishedCount === promisesArray.length) { // promises 数组为空，我们可以直接兑现 newPromise
+  if (finishedCount === promisesArray.length) {
+    // promises 数组为空，我们可以直接兑现 newPromise
     _resolve(newPromise, value);
   }
   promisesArray.forEach((item, idx) => {
@@ -1035,7 +1044,7 @@ MyPromise.all = function (promises) {
       (err: Reason) => {
         toRejectedState(newPromise, err);
       }
-    )
+    );
   });
   return newPromise;
 };
@@ -1071,4 +1080,3 @@ MyPromise.race = function (promises) {
   return newPromise;
 };
 ```
-
