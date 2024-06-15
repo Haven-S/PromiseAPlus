@@ -27,12 +27,19 @@ export const MyPromise = function (this: MyPromiseType, resolver?: Resolver) {
   this['finally'] = onFinished => {
     return this.then(
       (res: Value) => {
-        onFinished();
+        const newPromise = new MyPromise();
+        const returnPromise = newPromise.then(() => res);
+        _resolve(newPromise, onFinished());
+        return returnPromise;
       },
       (err: Reason) => {
-        onFinished();
-      },
-      true
+        const newPromise = new MyPromise();
+        const returnPromise = newPromise.then(() => {
+          throw err;
+        });
+        _resolve(newPromise, onFinished());
+        return returnPromise;
+      }
     );
   };
   if (resolver) {

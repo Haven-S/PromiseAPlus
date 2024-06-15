@@ -839,111 +839,60 @@ promise2.then(
 
 而 promise.finally 的回调返回值被忽略了，promise2 和 promise 的状态一样，都是被拒绝的状态。
 
-还记得我们的 clearThenQueue 函数吗？在这里我们实现了对 `then` 回调函数返回值的处理
-
 ```typescript
-function clearThenQueue(promise: PromiseAPlusType) {
-  /*
-  	省略无关代码
-  */
-  if (typeof toBeCalledFunc === 'function') {
-    const callback = () => {
-      let x;
-      try {
-        x = toBeCalledFunc(payload);
-      } catch (e) {
-        toRejectedState(returnPromise, e);
-        return;
-      }
-      // 关键部分
-      _resolve(returnPromise, x);
-    };
-    process.nextTick(callback);
-  }
-  /*
-  	省略无关代码
-  */
+function getTime(){
+    return new Date().getTime();
+};
+function wait(msec){
+    return new Promise((resolve)=>{
+        setTimeout(()=>{
+            resolve(msec);
+        },msec)
+    })
 }
+let promise = Promise.resolve(1);
+
+const startTime = getTime();
+promise
+  .finally(res => {
+    return wait(5000);
+  })
+  .then(res => {
+    const endTime = getTime();
+    console.log('time diff:',endTime-startTime,'ms');
+    console.log('finally then res:', res);
+  });
+// time diff: 5002 s
+// finally then res: 1
 ```
 
-对于 finally 的回调，我们不关心它的返回值 x，所以这里我们单独开一个分支处理：
-
-```typescript
-function clearThenQueue(promise: PromiseAPlusType) {
-  /*
-  	省略无关代码
-  */
-  if (typeof toBeCalledFunc === 'function') {
-    const callback = () => {
-      let x;
-      try {
-        x = toBeCalledFunc(payload);
-      } catch (e) {
-        toRejectedState(returnPromise, e);
-        return;
-      }
-      if (isFinally) {
-        changeState(returnPromise, {
-          state: currentState,
-          payload
-        });
-      } else {
-        _resolve(returnPromise, x);
-      }
-    };
-    process.nextTick(callback);
-  }
-  /*
-  	省略无关代码
-  */
-}
-
-interface ThenObj {
-  onFulfilled: any;
-  onRejected: any;
-  returnPromise: PromiseAPlusType;
-  isFinally?: boolean;
-}
-
-function then(
-  this: PromiseAPlusType,
-  onFulfilled?: any,
-  onRejected?: any,
-  isFinally: boolean = false
-): T {
-  const returnPromise = new PromiseAPlus();
-  const newObj = {
-    onFulfilled,
-    onRejected,
-    returnPromise
-  } as ThenObj<T>;
-  if (isFinally) {
-    newObj.isFinally = true;
-  }
-  this[thenQueue].push(newObj);
-  clearThenQueue(this);
-  return returnPromise;
-}
-```
-
-这里我们改造了 `then` 方法，添加一个可选参数 isFinally，默认值为 false。这样可以让我们不需要修改之前的代码里对 `then` 的调用格式。如果 isFinally 是 true，那么就给它要添加的 thenObj 加上 isFinally 标志。在 clearThenQueue 函数里，对于有 isFinally 标志的对象，在执行完其回调函数后，我们不再调用 `[[resolve]]`，而是去同步返回的 Promise 的状态。
+这里注意，虽然 finally 的回调被忽略，但如果它返回了一个promise对象，仍然会等待其被兑现或被拒绝。在上面的例子中，.then的回调等待了5000多毫秒才被调用。
 
 这样我们就可以复用 `then` 方法，实现 finally 方法：
 
 ```typescript
 this['finally'] = onFinished => {
-  return this.then(
-    (res: Value) => {
-      // 避免传递参数给回调函数
-      onFinished();
-    },
-    (err: Reason) => {
-      onFinished();
-    },
-    true
-  );
-};
+    return this.then(
+      (res: Value) => {
+        const newPromise = new MyPromise();
+        const returnPromise = newPromise.then(() => res);
+        _resolve(newPromise, onFinished());
+        return returnPromise;
+      },
+      (err: Reason) => {
+        const newPromise = new MyPromise();
+        const returnPromise = newPromise.then(() => {
+          throw err;
+        });
+        _resolve(newPromise, onFinished());
+        return returnPromise;
+      }
+    );
 ```
+
+如果 onFinished 返回 Promise 对象，那么 newPromise 会等待其被兑现或被拒绝。如果 onFinished 抛出错误，`then`方法可以将其正确捕捉。onFinished 的返回值被忽略，finally 方法按原样传递了 Promise 对象的值和状态。
+
+
 
 由于我们的 MyPromise 对象新增了 catch 和 finally 方法，那么它的类型也不再应该是 PromiseAPlusType 了。修改类型比较复杂，例如：
 

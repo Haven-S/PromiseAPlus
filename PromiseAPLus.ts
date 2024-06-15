@@ -19,7 +19,7 @@ export type Value = any;
 // type Exception = any;
 export type Reason = any;
 
-export type Then<R> = (onFulfilled?: any, onRejected?: any, isFinally?: boolean) => R;
+export type Then<R> = (onFulfilled?: any, onRejected?: any) => R;
 
 // 2. Requirements
 enum State {
@@ -69,7 +69,6 @@ export interface ThenObj<T extends PromiseAPlusType> {
   onFulfilled: any;
   onRejected: any;
   returnPromise: T;
-  isFinally?: boolean;
 }
 
 function clearThenQueue(promise: PromiseAPlusType) {
@@ -80,7 +79,7 @@ function clearThenQueue(promise: PromiseAPlusType) {
   const toBeCalled = currentState === State.fulfilled ? 'onFulfilled' : 'onRejected';
   const payload = currentState === State.fulfilled ? promise[value] : promise[reason];
   for (let i = 0; i < promise[thenQueue].length; i++) {
-    const { [toBeCalled]: toBeCalledFunc, returnPromise, isFinally } = promise[thenQueue][i];
+    const { [toBeCalled]: toBeCalledFunc, returnPromise } = promise[thenQueue][i];
     if (typeof toBeCalledFunc === 'function') {
       const callback = () => {
         let x;
@@ -90,14 +89,8 @@ function clearThenQueue(promise: PromiseAPlusType) {
           toRejectedState(returnPromise, e);
           return;
         }
-        if (isFinally) {
-          changeState(returnPromise, {
-            state: currentState,
-            payload
-          });
-        } else {
-          _resolve(returnPromise, x);
-        }
+
+        _resolve(returnPromise, x);
       };
       process.nextTick(callback);
     } else {
@@ -168,21 +161,13 @@ interface PromiseClass<T extends PromiseAPlusType> {
   (): void;
 }
 
-function then<T extends PromiseAPlusType>(
-  this: T,
-  onFulfilled?: any,
-  onRejected?: any,
-  isFinally: boolean = false
-): T {
+function then<T extends PromiseAPlusType>(this: T, onFulfilled?: any, onRejected?: any): T {
   const returnPromise = new (this.constructor as PromiseClass<T>)();
   const newObj = {
     onFulfilled,
     onRejected,
     returnPromise
   } as ThenObj<T>;
-  if (isFinally) {
-    newObj.isFinally = true;
-  }
   this[thenQueue].push(newObj);
   clearThenQueue(this);
   return returnPromise;
