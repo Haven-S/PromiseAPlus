@@ -862,7 +862,7 @@ promise
     console.log('time diff:',endTime-startTime,'ms');
     console.log('finally then res:', res);
   });
-// time diff: 5002 s
+// time diff: 5002 ms
 // finally then res: 1
 ```
 
